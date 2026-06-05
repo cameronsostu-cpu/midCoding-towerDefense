@@ -45,6 +45,7 @@ class WaveController:
 		self.spawned = 0
 		self.total = 0
 		self.spawn_timer = 0.0
+		self.auto_mode = False
 
 	def begin_wave(self):
 		if self.active:
@@ -54,6 +55,9 @@ class WaveController:
 		self.spawned = 0
 		self.total = 6 + self.wave_index * 2 #ENEMIES PER WAVE 
 		self.spawn_timer = 0.2
+		self.total = 6 + self.wave_index * 3
+		self.enemy_health = 30 + self.wave_index * 8
+		self.enemy_speed = 80 + self.wave_index * 4
 		return True
 
 	def update(self, dt, enemies):
@@ -61,14 +65,18 @@ class WaveController:
 			return
 		self.spawn_timer -= dt
 		if self.spawn_timer <= 0 and self.spawned < self.total:
-			enemies.append(Enemy(*PATH_POINTS[0]))
+			# In WaveController.update() spawn line:
+			enemies.append(
+			Enemy(*PATH_POINTS[0], speed=self.enemy_speed, health=self.enemy_health, max_health=self.enemy_health))
 			self.spawned += 1
 			self.spawn_timer = 0.8
+
 @dataclass
 class Tower:
 	col: int
 	row: int
 	cooldown: float = 0.0
+	level: int = 1
 	@property
 	def x(self):
 		return self.col * TILE_SIZE + TILE_SIZE / 2
@@ -81,7 +89,12 @@ class Tower:
 		cx = int(self.x)
 		cy = int(self.y)
 		pygame.draw.rect(screen, TOWER_COLOR, (cx - 14, cy - 14, 28, 28), border_radius=4)
-
+	def tower_range(tower):
+		return 120 + (tower.level - 1) * 28
+	def tower_damage(tower):
+		return 18 + (tower.level - 1) * 12
+	def tower_fire_rate(tower):
+		return 1.0 + (tower.level - 1) * 0.35
 @dataclass
 class Enemy:
 	x: float
@@ -223,15 +236,24 @@ def main():
 	lives = 20
 	tower_cost = 70
 	message = "Press S to start wave."
+	selected_tower = None
+	upgrade_cost = 90
 	waves = WaveController()
 	while running:
 		clock.tick(FPS)
 		for event in pygame.event.get():
 			if event.type == pygame.QUIT:
 				running = False
-			if event.type == pygame.KEYDOWN:
+			elif event.type == pygame.KEYDOWN:
 				if event.key == pygame.K_s:
 					waves.begin_wave()
+				elif event.key == pygame.K_a:
+					waves.auto_mode = not waves.auto_mode
+				elif event.key == pygame.K_u and selected_tower is not None:
+					if gold >= upgrade_cost and selected_tower.level < 4:
+						selected_tower.level += 1
+						gold -= upgrade_cost
+						message = f"Tower upgraded to L{selected_tower.level}."
 			if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
 				mx, my = event.pos
 				if mx < BOARD_WIDTH:
@@ -240,10 +262,19 @@ def main():
 				if can_place_tower(towers, col, row) and gold >= tower_cost:
 					towers.append(Tower(col, row))
 					gold -= tower_cost
+					clicked = tower_at(towers, col, row)
+					if clicked is not None:
+						selected_tower = clicked
+					else:
+						# place tower logic from previous day
+						pass
 				elif gold < tower_cost:
 					message = "Not enough gold."
 
 		dt = clock.tick(FPS) / 1000.0
+
+		if waves.auto_mode and not waves.active and len(enemies) == 0:
+			waves.begin_wave()
 		waves.update(dt, enemies)
 		update_towers(towers, enemies, bullets, dt)
 		for enemy in list(enemies):
@@ -266,6 +297,9 @@ def main():
 			enemy.draw()
 		for tower in towers:
 			tower.draw()
+			if tower is selected_tower:
+				pygame.draw.circle(screen, (255, 215, 117), (int(tower.x), int(tower.y)), int(tower_range(tower)), 2)
+
 		for b in bullets:
 			b.draw()
 		draw_panel()
